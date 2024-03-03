@@ -1,0 +1,70 @@
+﻿function Name,set_radio_init,,,,,,,
+step,instruction,address,value,na,na,na,encapsulation,comment
+1,write,0x0167,0x08,,,,,refpll init
+1,write,0x0256,0x00,"
+","
+","
+","
+",tx init
+2,delay,1,us,"
+","
+","
+","
+",delay 1us for settling
+3,write,0x04e6,0x19,"
+","
+","
+","
+",rx init
+3,write,0x19,0x11,"
+","
+","
+","
+",rx_pmu_on
+4,delay,1,us,"
+","
+","
+","
+",delay 1us for settling
+,,,,,,,,
+function Name,tx0_ldo_on,,,,,,,
+step,instruction,address,value,para_enable,na,na,encapsulation,comment
+1,write,0x01f9,0x0,0,,,,disable LDO
+1,write,0x01f9,0x1c,1,,,,enable LDO
+2,delay,1,us,,,,,delay 1us for settling
+,,,,,,,,
+function Name,set_rx_tpana,,,,,,,
+step,instruction,address,value,para_tp_setting,na,na,encapsulation,comment
+1,write,0x013B,0x01,,,,,enable RX_TPANA
+1,write,0x0141,0x01,,,,,enable RX_TPANA
+1,write,0x013C,para_tp_setting,,,,,select TPMUX
+,,,,,,,,
+function Name,set_rx0_tia_vcm,,,,,,,
+step,instruction,address,value,para_tia_vcm,para_mixer_bias,na,encapsulation,comment
+1,write,0x007C,((para_tia_vcm<<4)&0xf0)+para_mixer_bias,,,,,merge and assign code
+2,delay,0.1,us,,,,,delay 0.1us for settling
+,,,,,,,,
+function Name,rx0_on,,,,,,,
+step,instruction,address,value,para_enable,na,na,encapsulation,comment
+1,write,0x0070,0x01,"
+","
+","
+",sub_function: rx0_bias0_on,
+2,write,0x0071,para_enable,"
+","
+","
+",sub_function: rx_bias1_en,
+3,write,0x0072,0x01,"
+","
+","
+",sub_function_start: rx_bias2_en,
+3,write,0x0073,0x01,,,,,
+4,write,0x0074,0x01,"
+","
+","
+",sub_function_end: rx_bias2_en,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,
+,,,,,,,,

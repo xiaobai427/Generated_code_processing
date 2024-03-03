@@ -1,0 +1,13 @@
+function name	fmcwpll_single_tone						
+step	instruction	address	value	para_freq	na	na	comment
+1	write	0x3e0	0x01				fmcw_single_tone_on()
+1	write	0x3dc	para_fmcwfreql				delay 0.1us for settling
+1	write	0x3dd	para_fmcwfreqm				
+1	write	0x3de	para_fmcwfreqh				
+1	write	0x3df	para_fmcwfreqint				
+1	write	0x3bd	para_fmcwfreql				set idle frequency
+1	write	0x3be	para_fmcwfreqm				
+1	write	0x3bf	para_fmcwfreqh				
+1	write	0x3c0	para_fmcwfreqint				
+1	write	0x3da					release sdm and fmcw rst
+1	write	0x3da	0x07				

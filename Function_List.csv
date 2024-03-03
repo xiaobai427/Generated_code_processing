@@ -1,0 +1,11 @@
+﻿Assign Function list,Trim Function list,Dedicated Function list
+set_radio_init,set_tsauxadc0_bg_sel,fmcwpll_widelock
+cbc_pwron,set_rxbg_ctat_8u_cal,do_digpll_lock
+tx_ldo_on,set_lodist_mldo_voutcal,
+tx_on,set_lodist_muxin_bias,
+set_rx_tpana,set_tx0_pdt_bias_trim,
+rx_tpana_off,set_rx0_tia_vcm,
+,set_refpll_lpf_vctrl,
+,,
+,,
+,,
