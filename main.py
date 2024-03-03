@@ -1,8 +1,9 @@
 import csv
 import json
+from abc import ABC, abstractmethod
 
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Tuple
 import re
 
 
@@ -297,93 +298,398 @@ class DataProcessor:
 #         else:
 #             return f"\treg_write({action.address}, {action.value}); // {action.comment}"
 
+# class CodeGenerator:
+#     def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
+#         self.configurations = configurations
+#         self.type_model = type_model
+#
+#     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
+#                             params: Optional[Dict[str, str]] = None) -> str:
+#         configuration = self.configurations.get(function_name)
+#         if not configuration:
+#             return f"// No configuration found for function: {function_name}"
+#
+#         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
+#         pseudocode_lines = [f"{function_signature}\n{{"]
+#
+#         if function_name in self.type_model.type_simple_judgment:
+#             pseudocode_lines.extend(self._handle_simple_judgment(configuration))
+#         elif function_name in self.type_model.type_logic_operation:
+#             pseudocode_lines.extend(self._handle_logic_operation(configuration, params))
+#         else:
+#             for action in configuration.actions:
+#                 action_line = self._generate_action_line(action, function_name)
+#                 if action_line:
+#                     pseudocode_lines.append(action_line)
+#
+#         pseudocode_lines.append("}\n")
+#         return "\n".join(pseudocode_lines)
+#
+#     def _generate_function_signature(self, function_name: str, return_type: str, class_name: str,
+#                                      params: Optional[Dict[str, str]]) -> str:
+#         param_str = ", ".join([f"{type} {name}" for name, type in params.items()]) if params else ""
+#         return f"{return_type} {class_name}::{function_name}({param_str})"
+#
+#     def _generate_action_line(self, action: ActionItemModel, function_name: str) -> str:
+#         # 根据不同的类型调用不同的方法
+#         if function_name in self.type_model.type_static_assignment:
+#             return self._handle_static_assignment(action)
+#         elif function_name in self.type_model.type_parameter_assignment:
+#             return self._handle_parameter_assignment(action)
+#         # 可以添加更多的类型处理
+#         return ""
+#
+#     def _handle_static_assignment(self, action: ActionItemModel) -> str:
+#         return f"\treg_write({action.address}, {action.value}); // {action.comment}"
+#
+#     def _handle_parameter_assignment(self, action: ActionItemModel) -> str:
+#         param_name = action.value.strip("{}")
+#         return f"\treg_write({action.address}, {param_name}); // {action.comment}"
+#
+#     def _handle_simple_judgment(self, configuration: ConfigurationModel) -> List[str]:
+#         lines = []
+#         actions_with_params = [action for action in configuration.actions if action.params]
+#         for i, action in enumerate(actions_with_params):
+#             condition = f"if (enable == {action.params['enable']})"
+#             if action.params['enable'] and action.instruction == "write":
+#                 if i > 0:  # 使用 else if 替换之后的 if 条件
+#                     condition = "else " + condition
+#
+#                 action_line = f"\treg_write({action.address}, {action.value}); // {action.comment}"
+#                 lines.append(f"\t{condition}")
+#                 lines.append(f"\t{{")
+#                 lines.append(f"\t\t{action_line}")
+#                 lines.append(f"\t}}")
+#             elif action.instruction == "delay":
+#                 lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
+#         return lines
+#
+#     def _handle_logic_operation(self, configuration: ConfigurationModel, params: Dict[str, str]) -> List[str]:
+#         lines = []
+#         for action in configuration.actions:
+#             if action.instruction == 'write':
+#                 # 处理包含逻辑运算的写入指令
+#                 evaluated_value = self._evaluate_logic_expression(action.value, params)
+#                 line = f"\treg_write({action.address}, {evaluated_value}); // {action.comment}"
+#                 lines.append(line)
+#             elif action.instruction == 'delay':
+#                 # 处理延时
+#                 lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
+#         return lines
+#
+#     def _evaluate_logic_expression(self, expression: str, params: Dict[str, str]) -> str:
+#         # 这个方法用于将表达式中的参数替换为实际的参数值，并返回处理后的表达式
+#         # 这里的实现可能需要根据实际表达式语法和需求进行调整
+#         for param_name, param_type in params.items():
+#             if param_name in expression:
+#                 # 这里简单地替换参数名为其类型表示，需要根据实际情况进行调整
+#                 expression = expression.replace(param_name, param_type)
+#         return expression
+
+
+# 策略接口
+class ActionStrategy(ABC):
+    @abstractmethod
+    def execute_action(self,
+                       action: ActionItemModel,
+                       params: Optional[Dict[str, str]] = None,
+                       state: bool = None) -> List[str]:
+        raise NotImplementedError
+
+    def generate_function_signature(self, action_item: ActionItemModel, function_name: str, return_type: str,
+                                    class_name: str,
+                                    params: Optional[Dict[str, str]], state=None) -> str:
+        param_str = ", ".join([f"{type_} {name}" for name, type_ in params.items()]) if params else ""
+        if action_item.value in params.keys():
+            param_str = param_str
+        else:
+            param_str = ''
+        function_signature = f"{return_type} {class_name}::{function_name}({param_str})"
+        pseudocode_lines = [f"{function_signature}\n{{"]
+        self.execute_action(action_item, params)
+        action_lines = self.execute_action(action_item, params, state)
+        pseudocode_lines.extend(action_lines)
+        pseudocode_lines.append("}\n")
+        return "\n".join(pseudocode_lines)
+
+
+# 静态赋值策略
+class StaticAssignmentStrategy(ActionStrategy):
+    def execute_action(self,
+                       action: ActionItemModel,
+                       params: Optional[Dict[str, str]] = None,
+                       state: bool = None) -> List[str]:
+        return [f"\treg_write({action.address}, {action.value}); // {action.comment}"]
+
+
+class SimpleJudgmentStrategy(ActionStrategy):
+    def execute_action(self, action: ActionItemModel, params: Optional[Dict[str, str]] = None,
+                       state: bool = None) -> List[str]:
+
+        lines = []
+        condition = f"if (enable == {action.params['enable']})"
+        if action.params['enable'] and action.instruction == "write":
+            if state:  # 使用 else if 替换之后的 if 条件
+                condition = "else " + condition
+
+            action_line = f"\treg_write({action.address}, {action.value}); // {action.comment}"
+            lines.append(f"\t{condition}")
+            lines.append(f"\t{{")
+            lines.append(f"\t{action_line}")
+            lines.append(f"\t}}")
+        elif action.instruction == "delay":
+            lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
+        return lines
+
+
+# 参数赋值策略
+class ParameterAssignmentStrategy(ActionStrategy):
+    def execute_action(self,
+                       action: ActionItemModel,
+                       params: Optional[Dict[str, str]] = None,
+                       state: bool = None) -> List[str]:
+        param_name = action.value.strip("{}")
+        return [f"\treg_write({action.address}, {param_name}); // {action.comment}"]
+
+
+class LogicOperationStrategy(ActionStrategy):
+    def execute_action(self,
+                       action: ActionItemModel,
+                       params: Optional[Dict[str, str]] = None,
+                       state: bool = None) -> List[str]:
+        lines = []
+        if action.instruction == 'write':
+            # 处理包含逻辑运算的写入指令
+            evaluated_value = self._evaluate_logic_expression(action.value, params)
+            line = f"\treg_write({action.address}, {evaluated_value}); // {action.comment}"
+            lines.append(line)
+        elif action.instruction == 'delay':
+            # 处理延时
+            lines.append(f"\tSleep({action.address}, {action.value}); // {action.comment}")
+        return lines
+
+    @staticmethod
+    def _evaluate_logic_expression(expression: str, params: Dict[str, str]) -> str:
+        # 这个方法用于将表达式中的参数替换为实际的参数值，并返回处理后的表达式
+        for param_name, param_type in params.items():
+            if param_name in expression:
+                # 这里简单地替换参数名为其类型表示，需要根据实际情况进行调整
+                expression = expression.replace(param_name, param_type)
+        return expression
+
+
+class FunctionEncapsulationStrategy:
+    @staticmethod
+    def execute_action(configuration: ConfigurationModel, params: Optional[Dict[str, str]] = None) -> List[str]:
+        main_function_lines = []
+        sub_functions_code = {}
+
+        # 处理每个子功能
+        for sub_function_name, actions in configuration.sub_function.items():
+            sub_function_lines = []
+            for action in actions:
+                # 根据动作类型生成代码行
+                if action.instruction == "write":
+                    # 这里仅示例处理写入指令，其他指令类型可类似处理
+                    line = f"\treg_write({action.address}, {action.value}); // {action.comment}"
+                    sub_function_lines.append(line)
+            # 保存子函数代码
+            sub_functions_code[sub_function_name] = sub_function_lines
+
+        # 生成主函数调用子函数的代码
+        for sub_function_name in configuration.sub_function.keys():
+            call_line = f"\trf_{sub_function_name}();"
+            main_function_lines.append(call_line)
+
+        # 将子函数代码转换为字符串形式
+        sub_functions_code_str = []
+        for name, lines in sub_functions_code.items():
+            sub_function_def = f"void DRIVER_KUNLUN::rf_{name}()\n{{\n" + "\n".join(lines) + "\n}\n"
+            sub_functions_code_str.append(sub_function_def)
+
+        return main_function_lines + [""] + sub_functions_code_str
+
+
+class ActionStrategyFactory:
+    def __init__(self, type_model: TypeModel):
+        self.strategies = {
+            "simple_judgment": SimpleJudgmentStrategy(),
+            "logic_operation": LogicOperationStrategy(),
+            "static_assignment": StaticAssignmentStrategy(),
+            "parameter_assignment": ParameterAssignmentStrategy(),
+            "function_encapsulation": FunctionEncapsulationStrategy(),  # 新增策略
+        }
+        self.type_model = type_model
+
+    def get_strategy(self, function_name: str) -> ActionStrategy:
+        # 遍历所有类型模型的属性，查找匹配的函数名称
+        for type_attribute, strategy_key in [
+            (self.type_model.type_simple_judgment, "simple_judgment"),
+            (self.type_model.type_logic_operation, "logic_operation"),
+            (self.type_model.type_static_assignment, "static_assignment"),
+            (self.type_model.type_parameter_assignment, "parameter_assignment"),
+        ]:
+            if function_name in type_attribute:
+                return self.strategies[strategy_key]
+
+        # 如果没有找到匹配的策略，抛出异常
+        raise ValueError(f"No strategy found for function: {function_name}")
+
+    @staticmethod
+    def get_dynamic_strategy(
+            action_item,
+            addresses,
+            configuration_params) -> tuple[ActionStrategy, Any]:
+        if not list(action_item.params.keys())[0] == action_item.value:
+            return StaticAssignmentStrategy(), action_item.value
+        if list(action_item.params.keys())[0] == action_item.value:
+            return ParameterAssignmentStrategy(), action_item.value
+        if any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
+            return SimpleJudgmentStrategy(), action_item.value
+        if configuration_params and any(re.search(r'[\+\-\*/]', v) for v in configuration_params.values()):
+            return LogicOperationStrategy(), action_item.value
+        # 如果没有符合的条件，可以返回一个默认策略或抛出异常
+        raise ValueError("No suitable strategy found.")
+
+
 class CodeGenerator:
-    def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
+    def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel, processor: DataProcessor):
         self.configurations = configurations
         self.type_model = type_model
+        self.strategy_factory = ActionStrategyFactory(type_model)
+        self.processor = processor
 
     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
                             params: Optional[Dict[str, str]] = None) -> str:
+        global _params
         configuration = self.configurations.get(function_name)
         if not configuration:
             return f"// No configuration found for function: {function_name}"
 
         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
         pseudocode_lines = [f"{function_signature}\n{{"]
+        pseudocode_lines_str = []
+        if configuration.sub_function:
+            for key, sub_function in enumerate(configuration.sub_function.items()):
+                _function_name, action_items = sub_function
+                values = []
+                _pseudocode_lines = []
+                _params = params
+                if len(action_items) > 1:
+                    for action_item in action_items:
+                        values.append(action_item.value)
 
-        if function_name in self.type_model.type_simple_judgment:
-            pseudocode_lines.extend(self._handle_simple_judgment(configuration))
-        elif function_name in self.type_model.type_logic_operation:
-            pseudocode_lines.extend(self._handle_logic_operation(configuration, params))
+                    for _key in list(params.keys()):
+                        if params[_key] not in values:
+                            _params = None
+
+                    _function_signature = self._generate_function_signature(_function_name, return_type, class_name,
+                                                                        _params)
+                    _pseudocode_lines = [f"{_function_signature}\n{{"]
+                if len(action_items) == 1:
+                    for action_item in action_items:
+                        strategy, value = self.strategy_factory.get_dynamic_strategy(action_item,
+                                                                                     configuration.address,
+                                                                                     configuration)
+                        action_lines = strategy.generate_function_signature(action_item, _function_name, return_type,
+                                                                            class_name, params)
+                        pseudocode_lines_str.append(action_lines)
+                        if value in action_item.params.keys():
+                            value = value
+                        else:
+                            value = ''
+                        pseudocode_lines.append(f"\t{_function_name}({value});  // {action_item.comment}")
+                else:
+                    for action_item in action_items:
+                        strategy, value = self.strategy_factory.get_dynamic_strategy(action_item,
+                                                                                     configuration.address,
+                                                                                     configuration)
+                        action_lines = strategy.execute_action(action_item, value)
+
+                        _pseudocode_lines.extend(action_lines)
+                        if value in action_item.params.keys():
+                            value = value
+                        else:
+                            value = ''
+                        pseudocode_lines.append(f"\t{_function_name}({value});  // {action_item.comment}")
+                    pseudocode_lines = list(dict.fromkeys(pseudocode_lines))
+                    _pseudocode_lines.append("}\n")
+                    pseudocode_lines_str.append("\n".join(_pseudocode_lines))
         else:
-            for action in configuration.actions:
-                action_line = self._generate_action_line(action, function_name)
-                if action_line:
-                    pseudocode_lines.append(action_line)
-
+            strategy = self.strategy_factory.get_strategy(function_name)
+            state = False
+            for index, action in enumerate(configuration.actions):
+                if configuration.actions:
+                    if index > 0:
+                        state = True
+                    action_lines = strategy.execute_action(action, params, state)
+                    pseudocode_lines.extend(action_lines)
         pseudocode_lines.append("}\n")
+        pseudocode_lines.append("\n".join(pseudocode_lines_str))
         return "\n".join(pseudocode_lines)
 
-    def _generate_function_signature(self, function_name: str, return_type: str, class_name: str,
+    @staticmethod
+    def _generate_function_signature(function_name: str, return_type: str, class_name: str,
                                      params: Optional[Dict[str, str]]) -> str:
         param_str = ", ".join([f"{type} {name}" for name, type in params.items()]) if params else ""
         return f"{return_type} {class_name}::{function_name}({param_str})"
 
-    def _generate_action_line(self, action: ActionItemModel, function_name: str) -> str:
-        # 根据不同的类型调用不同的方法
-        if function_name in self.type_model.type_static_assignment:
-            return self._handle_static_assignment(action)
-        elif function_name in self.type_model.type_parameter_assignment:
-            return self._handle_parameter_assignment(action)
-        # 可以添加更多的类型处理
-        return ""
 
-    def _handle_static_assignment(self, action: ActionItemModel) -> str:
-        return f"\treg_write({action.address}, {action.value}); // {action.comment}"
-
-    def _handle_parameter_assignment(self, action: ActionItemModel) -> str:
-        param_name = action.value.strip("{}")
-        return f"\treg_write({action.address}, {param_name}); // {action.comment}"
-
-    def _handle_simple_judgment(self, configuration: ConfigurationModel) -> List[str]:
-        lines = []
-        actions_with_params = [action for action in configuration.actions if action.params]
-        for i, action in enumerate(actions_with_params):
-            condition = f"if (enable == {action.params['enable']})"
-            if action.params['enable'] and action.instruction == "write":
-                if i > 0:  # 使用 else if 替换之后的 if 条件
-                    condition = "else " + condition
-
-                action_line = f"\treg_write({action.address}, {action.value}); // {action.comment}"
-                lines.append(f"\t{condition}")
-                lines.append(f"\t{{")
-                lines.append(f"\t\t{action_line}")
-                lines.append(f"\t}}")
-            elif action.instruction == "delay":
-                lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
-        return lines
-
-    def _handle_logic_operation(self, configuration: ConfigurationModel, params: Dict[str, str]) -> List[str]:
-        lines = []
-        for action in configuration.actions:
-            if action.instruction == 'write':
-                # 处理包含逻辑运算的写入指令
-                evaluated_value = self._evaluate_logic_expression(action.value, params)
-                line = f"\treg_write({action.address}, {evaluated_value}); // {action.comment}"
-                lines.append(line)
-            elif action.instruction == 'delay':
-                # 处理延时
-                lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
-        return lines
-
-    def _evaluate_logic_expression(self, expression: str, params: Dict[str, str]) -> str:
-        # 这个方法用于将表达式中的参数替换为实际的参数值，并返回处理后的表达式
-        # 这里的实现可能需要根据实际表达式语法和需求进行调整
-        for param_name, param_type in params.items():
-            if param_name in expression:
-                # 这里简单地替换参数名为其类型表示，需要根据实际情况进行调整
-                expression = expression.replace(param_name, param_type)
-        return expression
+# class CodeGenerator:
+#     def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
+#         self.configurations = configurations
+#         self.type_model = type_model
+#
+#     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
+#                             params: Optional[Dict[str, str]] = None) -> str:
+#         configuration = self.configurations.get(function_name)
+#         if not configuration:
+#             return "// No configuration found for function: " + function_name
+#
+#         main_function_code = f"{return_type} {class_name}::{function_name}({self._format_params(params)})\n{{\n"
+#         sub_functions_code = ""
+#         addresses = configuration.address
+#         for key, sub_function in enumerate(configuration.sub_function.items()):
+#             # Generate code for each sub-function
+#             function_name, action_items = sub_function
+#             for action_item in action_items:
+#                 if not list(action_item.params.keys())[0] == action_item.value:
+#                     action_lines = StaticAssignmentStrategy().execute_action(action_item)
+#                     print(action_lines)
+#                 if list(action_item.params.keys())[0] == action_item.value:
+#                     action_lines = ParameterAssignmentStrategy().execute_action(action_item)
+#                     print(action_lines)
+#                 if any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
+#                     action_lines = SimpleJudgmentStrategy()
+#                     print(action_lines)
+#                 if configuration.params and any(re.search(r'[\+\-\*/]', v) for v in configuration.params):
+#                     action_lines = ParameterAssignmentStrategy()
+#                     print(action_lines)
+#
+#         main_function_code += "}\n\n"
+#         return main_function_code + sub_functions_code
+#
+#     def _format_params(self, params: Optional[Dict[str, str]]) -> str:
+#         if params:
+#             return ", ".join([f"{type} {name}" for name, type in params.items()])
+#         return ""
+#
+#     def _extract_sub_function_name(self, encapsulation: str) -> str:
+#         # Extract and format the sub-function name from the encapsulation field
+#         return encapsulation.split(':')[-1].strip()
+#
+#     def _generate_sub_function_code(self, action: ActionItemModel, class_name: str) -> (str, str):
+#         sub_function_name = self._extract_sub_function_name(action.encapsulation)
+#         formatted_name = f"{class_name}::rf_{sub_function_name}"
+#         params = self._format_params(action.params)
+#
+#         function_code = f"//sub_function {formatted_name} from {class_name}\nvoid {formatted_name}({params})\n{{\n"
+#         function_call = f"rf_{sub_function_name}({', '.join(action.params.keys())})"
+#         for step in action.steps:
+#             function_code += f"\treg_write({step.address}, {step.value}); // {step.comment}\n"
+#
+#         function_code += "}\n\n"
+#         return function_code, function_call
 
 
 if __name__ == '__main__':
@@ -392,10 +698,10 @@ if __name__ == '__main__':
     functions_dict = parser.parse_csv_to_pseudocode("Assign_Function.csv")
     processor = DataProcessor(functions_dict)
     processed_configurations = processor.process()
-    print(processed_configurations)
     classifier = DataClassifier(functions_dict)
     type_model = classifier.process_data()
-    code_generator = CodeGenerator(processed_configurations, type_model)
+
+    code_generator = CodeGenerator(processed_configurations, type_model, processor)
     pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
     print(pseudocode_static)
 
@@ -404,13 +710,13 @@ if __name__ == '__main__':
                                                               params_for_set_rx_tpana)
 
     print(pseudocode_parameter)
-
+    #
     # 生成简单判断类型的伪代码
     params_for_tx0_ldo_on = {"enable": "uint8_t"}  # 参数示例
     pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN",
                                                                     params_for_tx0_ldo_on)
     print(pseudocode_simple_judgment)
-
+    #
     # 调用generate_pseudocode生成代码
     function_name = 'set_rx0_tia_vcm'
     return_type = 'void'
@@ -420,12 +726,22 @@ if __name__ == '__main__':
     # 生成伪代码
     pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name, params)
     print(pseudocode)
+
+    # 调用generate_pseudocode生成代码
+    function_name = 'rx0_on'
+    return_type = 'void'
+    class_name = 'DRIVER_KUNLUN'
+    params = {"enable": "uint8_t"}  # 函数参数及其类型
+
+    # 生成伪代码
+    pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name, params)
+    print(pseudocode)
     # processed_configurations = processor.process()
     # classifier = DataClassifier(functions_dict)
     # instruction = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'instruction')
     # address = processor.fetch_deep_attribute_values('set_radio_init', 'address')
     # values = processor.fetch_deep_attribute_values('set_radio_init', 'values')
-    # comments = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'comment')
+    comments = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'comment')
     # print(classifier.process_data())
     #
     # print(instruction)
