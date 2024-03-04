@@ -1,6 +1,7 @@
 import csv
 import json
 from abc import ABC, abstractmethod
+from copy import deepcopy
 
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union, Tuple
@@ -170,65 +171,69 @@ class ConfigurationModel(BaseModel):
 
 
 class DataClassifier:
-    _configuration: ConfigurationModel
-
-    def __init__(self, data: Dict[str, Any], configuration: ConfigurationModel = None):
-        self._configuration = None
+    def __init__(self, data: Dict[str, Any], configuration: Optional[ConfigurationModel] = None):
+        self._configuration = deepcopy(configuration)  # 对传入的configuration进行深拷贝
         self.data = data
-        self.configuration = configuration
         self.values = []
         self.address = []
         self.params = None
         self.judgment_to_type = [
-            (self.is_function_encapsulation, 'type_function_encapsulation'),
-            (self.is_static_assignment, 'type_static_assignment'),
-            (self.is_simple_judgment, 'type_simple_judgment'),
-            (self.is_parameter_assignment, 'type_parameter_assignment'),
-            (self.is_logic_operation, 'type_logic_operation'),
+            (self._is_function_encapsulation, 'type_function_encapsulation'),
+            (self._is_static_assignment, 'type_static_assignment'),
+            (self._is_simple_judgment, 'type_simple_judgment'),
+            (self._is_parameter_assignment, 'type_parameter_assignment'),
+            (self._is_logic_operation, 'type_logic_operation'),
         ]
 
-    def is_static_assignment(self) -> bool:
-        return not bool(self.params)
+    def _is_static_assignment(self) -> bool:
+        return not self.params
 
     @staticmethod
-    def has_consecutive_duplicates(addresses: List[str]) -> bool:
-        return any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1))
+    def _has_consecutive_duplicates(addresses: List[str]) -> bool:
+        return any(a == b for a, b in zip(addresses, addresses[1:]))
 
-    def is_simple_judgment(self) -> bool:
-        return self.has_consecutive_duplicates(self.address)
+    def _is_simple_judgment(self) -> bool:
+        return self._has_consecutive_duplicates(self.address)
 
-    def is_parameter_assignment(self) -> bool:
+    def _is_parameter_assignment(self) -> bool:
         return self.params and all(not re.search(r'[\+\-\*/]', v) for v in self.values)
 
-    def is_logic_operation(self) -> bool:
+    def _is_logic_operation(self) -> bool:
         return self.params and any(re.search(r'[\+\-\*/]', v) for v in self.values)
 
-    def is_function_encapsulation(self) -> bool:
-        return bool(self._configuration.sub_function)
+    def _is_function_encapsulation(self) -> bool:
+        return bool(self._configuration and self._configuration.sub_function)
 
     def process_data(self) -> TypeModel:
         model = TypeModel()
-        for key, configuration_items in self.data.items():
-            if isinstance(configuration_items, ConfigurationModel):
-                self.values = configuration_items.values
-                self.address = configuration_items.address
-                self.params = configuration_items.params
-                self._configuration = configuration_items
-            else:
-                parser_list = []
-                self.values = self.configuration.values[:len(configuration_items)]
-                self.address = self.configuration.address[:len(configuration_items)]
-                for i, value in enumerate(configuration_items):
-                    parser_list.append(str(value.params))
-                parsed_list = [eval(item) for item in parser_list if eval(item)]
-                self.params = parsed_list[0] if len(parsed_list) == 1 else {}
-                self.configuration.sub_function = {}
-                self._configuration = self.configuration
+        for key, config_items in self.data.items():
+            self._prepare_data(config_items)
             for judgment, type_attr in self.judgment_to_type:
                 if judgment():
                     getattr(model, type_attr).append(key)
-                    break  # 如果需要一个项目只能归类到一个类型，添加break; 否则，删除break以允许多重分类
+                    break
         return model
+
+    def _prepare_data(self, config_items):
+        if isinstance(config_items, ConfigurationModel):
+            self._set_configuration(config_items)
+        else:
+            self._set_configuration_from_items(config_items)
+
+    def _set_configuration(self, configuration: ConfigurationModel):
+        self.values = configuration.values
+        self.address = configuration.address
+        self.params = configuration.params
+        self._configuration = deepcopy(configuration)
+
+    def _set_configuration_from_items(self, items):
+        parser_list = [str(value.params) for value in items if hasattr(value, 'params')]
+        parsed_list = [eval(item) for item in parser_list if eval(item)]
+        self.params = parsed_list[0] if parsed_list else {}
+        if self._configuration:
+            self.values = self._configuration.values[:len(items)]
+            self.address = self._configuration.address[:len(items)]
+            self._configuration.sub_function = {}
 
 
 class DataProcessor:
@@ -457,28 +462,13 @@ class ActionStrategyFactory:
         # 如果没有找到匹配的策略，抛出异常
         raise ValueError(f"No strategy found for function: {function_name}")
 
-    @staticmethod
-    def get_dynamic_strategy(
-            action_item,
-            addresses,
-            configuration_params) -> tuple[ActionStrategy, Any]:
-        if not list(action_item.params.keys())[0] == action_item.value:
-            return StaticAssignmentStrategy(), action_item.value
-        if list(action_item.params.keys())[0] == action_item.value:
-            return ParameterAssignmentStrategy(), action_item.value
-        if any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
-            return SimpleJudgmentStrategy(), action_item.value
-        if configuration_params and any(re.search(r'[\+\-\*/]', v) for v in configuration_params.values()):
-            return LogicOperationStrategy(), action_item.value
-        # 如果没有符合的条件，可以返回一个默认策略或抛出异常
-        raise ValueError("No suitable strategy found.")
-
 
 class CodeGenerator:
     def __init__(self, configurations, type_model, processor):
         self.configurations = configurations
         self.type_model = type_model
         self.strategy_factory = ActionStrategyFactory(type_model)
+        self.strategy_factory_sub = None
         self.processor = processor
 
     def generate_pseudocode(self, function_name, return_type="void", class_name=""):
@@ -491,8 +481,9 @@ class CodeGenerator:
         pseudocode_lines = [f"{function_signature}\n{{"]
         sub_function_definitions = '\n'
         if configuration.sub_function:
-            test = DataClassifier(configuration.sub_function, configuration)
-            result = test.process_data()
+            sub_classifier = DataClassifier(configuration.sub_function, configuration)
+            sub_type_model = sub_classifier.process_data()
+            self.strategy_factory_sub = ActionStrategyFactory(sub_type_model)
             sub_function_calls, sub_function_definitions = self._handle_sub_functions(configuration, return_type,
                                                                                       class_name)
             pseudocode_lines += sub_function_calls
@@ -512,7 +503,7 @@ class CodeGenerator:
         for sub_func_name, action_items in configuration.sub_function.items():
             sub_params = self._find_params_from_actions(action_items, configuration)
             call_line, definition = self._generate_sub_function(sub_func_name, return_type, action_items, sub_params,
-                                                                class_name, configuration)
+                                                                class_name)
             sub_function_calls.append(call_line)
             sub_function_definitions.append(definition)
         return sub_function_calls, sub_function_definitions
@@ -522,11 +513,11 @@ class CodeGenerator:
         values, address = zip(*[(action.value, action.address) for action in action_items])
         return find_common_elements_to_params(configuration.params, values, address)
 
-    def _generate_sub_function(self, function_name, return_type, action_items, params, class_name, configuration):
+    def _generate_sub_function(self, function_name, return_type, action_items, params, class_name):
+        _function_signature = self._generate_function_signature(function_name, return_type, None, params)
         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
-        call_line = f"\t{function_signature};"
-        values, address = zip(*[(action.value, action.address) for action in action_items])
-        strategy, _ = self.strategy_factory.get_dynamic_strategy(action_items[0], address, configuration)
+        call_line = f"\t{_function_signature};"
+        strategy = self.strategy_factory_sub.get_strategy(function_name)
         function_lines = [f"{function_signature}\n{{"]
         for action_item in action_items:
             action_lines = strategy.execute_action(action_item, params)
@@ -558,27 +549,27 @@ if __name__ == '__main__':
     processed_configurations = processor.process()
     classifier = DataClassifier(processed_configurations)
     type_model = classifier.process_data()
-    print(type_model)
 
     code_generator = CodeGenerator(processed_configurations, type_model, processor)
-    # pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
-    # print(pseudocode_static)
+    pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
+    print(pseudocode_static)
+
+    pseudocode_parameter = code_generator.generate_pseudocode('set_rx_tpana', "void", "DRIVER_KUNLUN")
+
+    print(pseudocode_parameter)
     #
-    # pseudocode_parameter = code_generator.generate_pseudocode('set_rx_tpana', "void", "DRIVER_KUNLUN")
+    # 生成简单判断类型的伪代码
+    pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN")
+    print(pseudocode_simple_judgment)
     #
-    # print(pseudocode_parameter)
-    # #
-    # # 生成简单判断类型的伪代码
-    # pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN")
-    # #
-    # # 调用generate_pseudocode生成代码
-    # function_name = 'set_rx0_tia_vcm'
-    # return_type = 'void'
-    # class_name = 'DRIVER_KUNLUN'
-    #
-    # # 生成伪代码
-    # pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
-    # print(pseudocode)
+    # 调用generate_pseudocode生成代码
+    function_name = 'set_rx0_tia_vcm'
+    return_type = 'void'
+    class_name = 'DRIVER_KUNLUN'
+
+    # 生成伪代码
+    pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
+    print(pseudocode)
 
     # 调用generate_pseudocode生成代码
     function_name = 'rx0_on'
@@ -588,6 +579,7 @@ if __name__ == '__main__':
     # 生成伪代码
     pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
     print(pseudocode)
+
     # processed_configurations = processor.process()
     # classifier = DataClassifier(functions_dict)
     # instruction = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'instruction')
