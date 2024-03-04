@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 
 from pydantic import BaseModel, Field
-from typing import List, Dict, Any, Optional, Union, Tuple
+from typing import List, Dict, Any, Optional
 import re
 
 from debug import Test_DataClassifier
@@ -29,6 +29,19 @@ def adjust_params(data):
                 # Ensure params is properly formatted as a string
                 instruction['params'] = str(params)
     return data
+
+
+def contains_arithmetic_operator(value: str) -> bool:
+    """检查字符串是否包含算术运算符(+, -, *, /)。
+
+    参数:
+    value: 需要检查的字符串。
+
+    返回:
+    bool: 如果字符串包含任何算术运算符，则为True，否则为False。
+    """
+    operators = ['+', '-', '*', '/']
+    return any(op in value for op in operators)
 
 
 class PseudocodeParser:
@@ -196,10 +209,20 @@ class DataClassifier:
         return self._has_consecutive_duplicates(self.address)
 
     def _is_parameter_assignment(self) -> bool:
-        return self.params and all(not re.search(r'[\+\-\*/]', v) for v in self.values)
+        """检查是否所有的参数赋值都不包含算术运算符。
+
+        返回:
+        bool: 如果所有值都不包含算术运算符，则为True，否则为False。
+        """
+        return self.params and all(not contains_arithmetic_operator(v) for v in self.values)
 
     def _is_logic_operation(self) -> bool:
-        return self.params and any(re.search(r'[\+\-\*/]', v) for v in self.values)
+        """检查是否任何参数赋值包含算术运算符。
+
+        返回:
+        bool: 如果任何值包含算术运算符，则为True，否则为False。
+        """
+        return self.params and any(contains_arithmetic_operator(v) for v in self.values)
 
     def _is_function_encapsulation(self) -> bool:
         return bool(self._configuration and self._configuration.sub_function)
@@ -323,22 +346,6 @@ class ActionStrategy(ABC):
                        state: bool = None) -> List[str]:
         raise NotImplementedError
 
-    def generate_function_signature(self, action_item: ActionItemModel, function_name: str, return_type: str,
-                                    class_name: str,
-                                    params: Optional[Dict[str, str]], state=None) -> str:
-        param_str = ", ".join([f"{type_} {name}" for name, type_ in params.items()]) if params else ""
-        if action_item.value in params.keys():
-            param_str = param_str
-        else:
-            param_str = ''
-        function_signature = f"{return_type} {class_name}::{function_name}({param_str})"
-        pseudocode_lines = [f"{function_signature}\n{{"]
-        self.execute_action(action_item, params)
-        action_lines = self.execute_action(action_item, params, state)
-        pseudocode_lines.extend(action_lines)
-        pseudocode_lines.append("}\n")
-        return "\n".join(pseudocode_lines)
-
 
 # 静态赋值策略
 class StaticAssignmentStrategy(ActionStrategy):
@@ -407,7 +414,7 @@ class LogicOperationStrategy(ActionStrategy):
 
 class FunctionEncapsulationStrategy:
     @staticmethod
-    def execute_action(configuration: ConfigurationModel, params: Optional[Dict[str, str]] = None) -> List[str]:
+    def execute_action(configuration: ConfigurationModel) -> List[str]:
         main_function_lines = []
         sub_functions_code = {}
 
@@ -463,6 +470,45 @@ class ActionStrategyFactory:
         raise ValueError(f"No strategy found for function: {function_name}")
 
 
+class SubFunctionHandler:
+    def __init__(self, strategy_factory_sub):
+        self.strategy_factory_sub = strategy_factory_sub
+
+    @staticmethod
+    def find_params_from_actions(action_items, configuration):
+        values, address = zip(*[(action.value, action.address) for action in action_items])
+        return find_common_elements_to_params(configuration.params, values, address)
+
+    def handle_sub_functions(self, configuration, return_type, class_name):
+        sub_function_calls, sub_function_definitions = [], []
+        for sub_func_name, action_items in configuration.sub_function.items():
+            sub_params = self.find_params_from_actions(action_items, configuration)
+            call_line, definition = self.generate_sub_function(sub_func_name, return_type, action_items, sub_params,
+                                                                class_name)
+            sub_function_calls.append(call_line)
+            sub_function_definitions.append(definition)
+        return sub_function_calls, sub_function_definitions
+
+    def generate_sub_function(self, function_name, return_type, action_items, params, class_name):
+        _function_signature = self.generate_function_signature(function_name, return_type, None, params)
+        function_signature = self.generate_function_signature(function_name, return_type, class_name, params)
+        call_line = f"\t{_function_signature};"
+        strategy = self.strategy_factory_sub.get_strategy(function_name)
+        function_lines = [f"{function_signature}\n{{"]
+        for action_item in action_items:
+            action_lines = strategy.execute_action(action_item, params)
+            function_lines += action_lines
+        function_lines.append("}\n")
+        return call_line, "\n".join(function_lines)
+
+    @staticmethod
+    def generate_function_signature(function_name, return_type, class_name, params):
+        param_str = ", ".join([f"{ptype} {pname}" for pname, ptype in params.items()]) if params else ""
+        if class_name:
+            return f"{return_type} {class_name}::{function_name}({param_str})"
+        return f"{function_name}({','.join(params.keys())})"
+
+
 class CodeGenerator:
     def __init__(self, configurations, type_model, processor):
         self.configurations = configurations
@@ -484,8 +530,8 @@ class CodeGenerator:
             sub_classifier = DataClassifier(configuration.sub_function, configuration)
             sub_type_model = sub_classifier.process_data()
             self.strategy_factory_sub = ActionStrategyFactory(sub_type_model)
-            sub_function_calls, sub_function_definitions = self._handle_sub_functions(configuration, return_type,
-                                                                                      class_name)
+            sub_function_handler = SubFunctionHandler(self.strategy_factory_sub)
+            sub_function_calls, sub_function_definitions = sub_function_handler.handle_sub_functions(configuration, return_type, class_name)
             pseudocode_lines += sub_function_calls
         else:
             pseudocode_lines += self._execute_actions(configuration.actions, params, function_name)
@@ -497,33 +543,6 @@ class CodeGenerator:
     @staticmethod
     def _find_params(configuration):
         return find_common_elements_to_params(configuration.params, configuration.values, configuration.address)
-
-    def _handle_sub_functions(self, configuration, return_type, class_name):
-        sub_function_calls, sub_function_definitions = [], []
-        for sub_func_name, action_items in configuration.sub_function.items():
-            sub_params = self._find_params_from_actions(action_items, configuration)
-            call_line, definition = self._generate_sub_function(sub_func_name, return_type, action_items, sub_params,
-                                                                class_name)
-            sub_function_calls.append(call_line)
-            sub_function_definitions.append(definition)
-        return sub_function_calls, sub_function_definitions
-
-    @staticmethod
-    def _find_params_from_actions(action_items, configuration):
-        values, address = zip(*[(action.value, action.address) for action in action_items])
-        return find_common_elements_to_params(configuration.params, values, address)
-
-    def _generate_sub_function(self, function_name, return_type, action_items, params, class_name):
-        _function_signature = self._generate_function_signature(function_name, return_type, None, params)
-        function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
-        call_line = f"\t{_function_signature};"
-        strategy = self.strategy_factory_sub.get_strategy(function_name)
-        function_lines = [f"{function_signature}\n{{"]
-        for action_item in action_items:
-            action_lines = strategy.execute_action(action_item, params)
-            function_lines += action_lines
-        function_lines.append("}\n")
-        return call_line, "\n".join(function_lines)
 
     def _execute_actions(self, actions, params, function_name):
         lines = []
