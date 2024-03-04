@@ -6,6 +6,29 @@ from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional, Union, Tuple
 import re
 
+from debug import Test_DataClassifier
+
+
+def adjust_params(data):
+    """
+    Adjusts the 'params' field in a nested dictionary structure based on whether the 'value'
+    is a key in 'params'. If 'value' is not a key, sets 'params' to "{}".
+
+    :param data: The nested dictionary structure containing the instructions and their parameters.
+    :return: The modified dictionary with adjusted 'params'.
+    """
+    for key, instructions in data.items():
+        for instruction in instructions:
+            # Convert string representation of dict to dict
+            params = eval(instruction['params'])
+            # Check if the 'value' is a key in 'params'
+            if instruction['value'] not in params:
+                instruction['params'] = "{}"
+            else:
+                # Ensure params is properly formatted as a string
+                instruction['params'] = str(params)
+    return data
+
 
 class PseudocodeParser:
     def __init__(self):
@@ -87,7 +110,7 @@ class PseudocodeParser:
             # Post-process to adjust the structure
             for func in self.functions.values():
                 if func['sub_function']:
-                    pass
+                    func['sub_function'] = adjust_params(func['sub_function'])
                 else:
                     del func['sub_function']
 
@@ -100,51 +123,6 @@ class TypeModel(BaseModel):
     type_parameter_assignment: List[str] = Field(default_factory=list)
     type_logic_operation: List[str] = Field(default_factory=list)
     type_function_encapsulation: List[str] = Field(default_factory=list)
-
-
-class DataClassifier:
-    def __init__(self, data: Dict[str, Any]):
-        self.data = data
-        self.judgment_to_type = [
-            (self.is_function_encapsulation, 'type_function_encapsulation'),
-            (self.is_static_assignment, 'type_static_assignment'),
-            (self.is_simple_judgment, 'type_simple_judgment'),
-            (self.is_parameter_assignment, 'type_parameter_assignment'),
-            (self.is_logic_operation, 'type_logic_operation'),
-        ]
-
-    @staticmethod
-    def is_static_assignment(value: Dict[str, Any]) -> bool:
-        return not value['params']
-
-    @staticmethod
-    def has_consecutive_duplicates(addresses: List[str]) -> bool:
-        return any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1))
-
-    @classmethod
-    def is_simple_judgment(cls, value: Dict[str, Any]) -> bool:
-        return cls.has_consecutive_duplicates(value['address'])
-
-    @staticmethod
-    def is_parameter_assignment(value: Dict[str, Any]) -> bool:
-        return value['params'] and all(not re.search(r'[\+\-\*/]', v) for v in value['values'])
-
-    @staticmethod
-    def is_logic_operation(value: Dict[str, Any]) -> bool:
-        return value['params'] and any(re.search(r'[\+\-\*/]', v) for v in value['values'])
-
-    @staticmethod
-    def is_function_encapsulation(value: Dict[str, Any]) -> bool:
-        return 'sub_function' in value
-
-    def process_data(self) -> TypeModel:
-        model = TypeModel()
-        for key, value in self.data.items():
-            for judgment, type_attr in self.judgment_to_type:
-                if judgment(value):
-                    getattr(model, type_attr).append(key)
-                    break  # 如果需要一个项目只能归类到一个类型，添加break; 否则，删除break以允许多重分类
-        return model
 
 
 # Action item model for actions and sub-functions
@@ -189,6 +167,68 @@ class ConfigurationModel(BaseModel):
         return (f"Params: [{params_str}], Actions: [{actions_str}], "
                 f"SubFunctions: [{sub_functions_str}], Values: [{values_str}], "
                 f"Address: [{address_str}]")
+
+
+class DataClassifier:
+    _configuration: ConfigurationModel
+
+    def __init__(self, data: Dict[str, Any], configuration: ConfigurationModel = None):
+        self._configuration = None
+        self.data = data
+        self.configuration = configuration
+        self.values = []
+        self.address = []
+        self.params = None
+        self.judgment_to_type = [
+            (self.is_function_encapsulation, 'type_function_encapsulation'),
+            (self.is_static_assignment, 'type_static_assignment'),
+            (self.is_simple_judgment, 'type_simple_judgment'),
+            (self.is_parameter_assignment, 'type_parameter_assignment'),
+            (self.is_logic_operation, 'type_logic_operation'),
+        ]
+
+    def is_static_assignment(self) -> bool:
+        return not bool(self.params)
+
+    @staticmethod
+    def has_consecutive_duplicates(addresses: List[str]) -> bool:
+        return any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1))
+
+    def is_simple_judgment(self) -> bool:
+        return self.has_consecutive_duplicates(self.address)
+
+    def is_parameter_assignment(self) -> bool:
+        return self.params and all(not re.search(r'[\+\-\*/]', v) for v in self.values)
+
+    def is_logic_operation(self) -> bool:
+        return self.params and any(re.search(r'[\+\-\*/]', v) for v in self.values)
+
+    def is_function_encapsulation(self) -> bool:
+        return bool(self._configuration.sub_function)
+
+    def process_data(self) -> TypeModel:
+        model = TypeModel()
+        for key, configuration_items in self.data.items():
+            if isinstance(configuration_items, ConfigurationModel):
+                self.values = configuration_items.values
+                self.address = configuration_items.address
+                self.params = configuration_items.params
+                self._configuration = configuration_items
+            else:
+                parser_list = []
+                self.values = self.configuration.values[:len(configuration_items)]
+                self.address = self.configuration.address[:len(configuration_items)]
+                for i, value in enumerate(configuration_items):
+                    parser_list.append(str(value.params))
+                parsed_list = [eval(item) for item in parser_list if eval(item)]
+                self.params = parsed_list[0] if len(parsed_list) == 1 else {}
+                self.configuration.sub_function = {}
+                self._configuration = self.configuration
+            for judgment, type_attr in self.judgment_to_type:
+                if judgment():
+                    getattr(model, type_attr).append(key)
+                    break  # 如果需要一个项目只能归类到一个类型，添加break; 否则，删除break以允许多重分类
+        return model
 
 
 class DataProcessor:
@@ -249,142 +289,24 @@ class DataProcessor:
         return results
 
 
-# class CodeGenerator:
-#     def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
-#         self.configurations = configurations
-#         self.type_model = type_model
-#
-#     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
-#                             params: Optional[Dict[str, str]] = None) -> str:
-#         configuration = self.configurations.get(function_name)
-#         if not configuration:
-#             return f"// No configuration found for function: {function_name}"
-#
-#         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
-#
-#         pseudocode_lines = [f"{function_signature}\n{{"]
-#
-#         for action in configuration.actions:
-#             action_line = self._generate_action_line(action, function_name)
-#             if action_line:
-#                 pseudocode_lines.append(action_line)
-#
-#         pseudocode_lines.append("}\n")
-#         return "\n".join(pseudocode_lines)
-#
-#     def _generate_function_signature(self, function_name: str, return_type: str, class_name: str,
-#                                      params: Optional[Dict[str, str]]) -> str:
-#         param_str = ""
-#         if params:
-#             param_str = ", ".join([f"{type} {name}" for name, type in params.items()])
-#         return f"{return_type} {class_name}::{function_name}({param_str})"
-#
-#     def _generate_action_line(self, action: ActionItemModel, function_name: str) -> str:
-#         if function_name in self.type_model.type_static_assignment:
-#             return self._handle_static_assignment(action)
-#         elif function_name in self.type_model.type_parameter_assignment:
-#             return self._handle_parameter_assignment(action)
-#         # Add more elif blocks here for other types
-#         return ""
-#
-#     def _handle_static_assignment(self, action: ActionItemModel) -> str:
-#         return f"\treg_write({action.address}, {action.value}); // {action.comment}"
-#
-#     def _handle_parameter_assignment(self, action: ActionItemModel) -> str:
-#         # Assuming 'value' could be a direct value or a parameter name
-#         if "{" in action.value and "}" in action.value:  # A simple check to see if 'value' might be a parameter
-#             param_name = action.value.strip("{}")
-#             return f"\treg_write({action.address}, {param_name}); // {action.comment}"
-#         else:
-#             return f"\treg_write({action.address}, {action.value}); // {action.comment}"
+def find_common_elements_to_params(params, values, addresses, element_type='uint8_t'):
+    combined_expressions = ' '.join(values)
 
-# class CodeGenerator:
-#     def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
-#         self.configurations = configurations
-#         self.type_model = type_model
-#
-#     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
-#                             params: Optional[Dict[str, str]] = None) -> str:
-#         configuration = self.configurations.get(function_name)
-#         if not configuration:
-#             return f"// No configuration found for function: {function_name}"
-#
-#         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
-#         pseudocode_lines = [f"{function_signature}\n{{"]
-#
-#         if function_name in self.type_model.type_simple_judgment:
-#             pseudocode_lines.extend(self._handle_simple_judgment(configuration))
-#         elif function_name in self.type_model.type_logic_operation:
-#             pseudocode_lines.extend(self._handle_logic_operation(configuration, params))
-#         else:
-#             for action in configuration.actions:
-#                 action_line = self._generate_action_line(action, function_name)
-#                 if action_line:
-#                     pseudocode_lines.append(action_line)
-#
-#         pseudocode_lines.append("}\n")
-#         return "\n".join(pseudocode_lines)
-#
-#     def _generate_function_signature(self, function_name: str, return_type: str, class_name: str,
-#                                      params: Optional[Dict[str, str]]) -> str:
-#         param_str = ", ".join([f"{type} {name}" for name, type in params.items()]) if params else ""
-#         return f"{return_type} {class_name}::{function_name}({param_str})"
-#
-#     def _generate_action_line(self, action: ActionItemModel, function_name: str) -> str:
-#         # 根据不同的类型调用不同的方法
-#         if function_name in self.type_model.type_static_assignment:
-#             return self._handle_static_assignment(action)
-#         elif function_name in self.type_model.type_parameter_assignment:
-#             return self._handle_parameter_assignment(action)
-#         # 可以添加更多的类型处理
-#         return ""
-#
-#     def _handle_static_assignment(self, action: ActionItemModel) -> str:
-#         return f"\treg_write({action.address}, {action.value}); // {action.comment}"
-#
-#     def _handle_parameter_assignment(self, action: ActionItemModel) -> str:
-#         param_name = action.value.strip("{}")
-#         return f"\treg_write({action.address}, {param_name}); // {action.comment}"
-#
-#     def _handle_simple_judgment(self, configuration: ConfigurationModel) -> List[str]:
-#         lines = []
-#         actions_with_params = [action for action in configuration.actions if action.params]
-#         for i, action in enumerate(actions_with_params):
-#             condition = f"if (enable == {action.params['enable']})"
-#             if action.params['enable'] and action.instruction == "write":
-#                 if i > 0:  # 使用 else if 替换之后的 if 条件
-#                     condition = "else " + condition
-#
-#                 action_line = f"\treg_write({action.address}, {action.value}); // {action.comment}"
-#                 lines.append(f"\t{condition}")
-#                 lines.append(f"\t{{")
-#                 lines.append(f"\t\t{action_line}")
-#                 lines.append(f"\t}}")
-#             elif action.instruction == "delay":
-#                 lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
-#         return lines
-#
-#     def _handle_logic_operation(self, configuration: ConfigurationModel, params: Dict[str, str]) -> List[str]:
-#         lines = []
-#         for action in configuration.actions:
-#             if action.instruction == 'write':
-#                 # 处理包含逻辑运算的写入指令
-#                 evaluated_value = self._evaluate_logic_expression(action.value, params)
-#                 line = f"\treg_write({action.address}, {evaluated_value}); // {action.comment}"
-#                 lines.append(line)
-#             elif action.instruction == 'delay':
-#                 # 处理延时
-#                 lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
-#         return lines
-#
-#     def _evaluate_logic_expression(self, expression: str, params: Dict[str, str]) -> str:
-#         # 这个方法用于将表达式中的参数替换为实际的参数值，并返回处理后的表达式
-#         # 这里的实现可能需要根据实际表达式语法和需求进行调整
-#         for param_name, param_type in params.items():
-#             if param_name in expression:
-#                 # 这里简单地替换参数名为其类型表示，需要根据实际情况进行调整
-#                 expression = expression.replace(param_name, param_type)
-#         return expression
+    # 使用正则表达式提取变量名
+    # 假设变量名由字母、下划线或数字组成，并且不以数字开头
+    variables_in_expressions = set(re.findall(r'\b[a-zA-Z_][a-zA-Z_0-9]*\b', combined_expressions))
+
+    # 找出两个集合的共有元素
+    common_elements = set(params).intersection(variables_in_expressions)
+
+    # 为每个共有元素指定类型
+    common_elements_with_type = {element: element_type for element in common_elements}
+
+    if not common_elements_with_type:
+        if not common_elements and any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
+            return {element: element_type for element in params}
+
+    return common_elements_with_type
 
 
 # 策略接口
@@ -553,143 +475,79 @@ class ActionStrategyFactory:
 
 
 class CodeGenerator:
-    def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel, processor: DataProcessor):
+    def __init__(self, configurations, type_model, processor):
         self.configurations = configurations
         self.type_model = type_model
         self.strategy_factory = ActionStrategyFactory(type_model)
         self.processor = processor
 
-    def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
-                            params: Optional[Dict[str, str]] = None) -> str:
-        global _params
-        configuration = self.configurations.get(function_name)
-        if not configuration:
+    def generate_pseudocode(self, function_name, return_type="void", class_name=""):
+        configuration = self.configurations.get(function_name, None)
+        if configuration is None:
             return f"// No configuration found for function: {function_name}"
 
+        params = self._find_params(configuration)
         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
         pseudocode_lines = [f"{function_signature}\n{{"]
-        pseudocode_lines_str = []
+        sub_function_definitions = '\n'
         if configuration.sub_function:
-            for key, sub_function in enumerate(configuration.sub_function.items()):
-                _function_name, action_items = sub_function
-                values = []
-                _pseudocode_lines = []
-                _params = params
-                if len(action_items) > 1:
-                    for action_item in action_items:
-                        values.append(action_item.value)
-
-                    for _key in list(params.keys()):
-                        if params[_key] not in values:
-                            _params = None
-
-                    _function_signature = self._generate_function_signature(_function_name, return_type, class_name,
-                                                                        _params)
-                    _pseudocode_lines = [f"{_function_signature}\n{{"]
-                if len(action_items) == 1:
-                    for action_item in action_items:
-                        strategy, value = self.strategy_factory.get_dynamic_strategy(action_item,
-                                                                                     configuration.address,
-                                                                                     configuration)
-                        action_lines = strategy.generate_function_signature(action_item, _function_name, return_type,
-                                                                            class_name, params)
-                        pseudocode_lines_str.append(action_lines)
-                        if value in action_item.params.keys():
-                            value = value
-                        else:
-                            value = ''
-                        pseudocode_lines.append(f"\t{_function_name}({value});  // {action_item.comment}")
-                else:
-                    for action_item in action_items:
-                        strategy, value = self.strategy_factory.get_dynamic_strategy(action_item,
-                                                                                     configuration.address,
-                                                                                     configuration)
-                        action_lines = strategy.execute_action(action_item, value)
-
-                        _pseudocode_lines.extend(action_lines)
-                        if value in action_item.params.keys():
-                            value = value
-                        else:
-                            value = ''
-                        pseudocode_lines.append(f"\t{_function_name}({value});  // {action_item.comment}")
-                    pseudocode_lines = list(dict.fromkeys(pseudocode_lines))
-                    _pseudocode_lines.append("}\n")
-                    pseudocode_lines_str.append("\n".join(_pseudocode_lines))
+            test = DataClassifier(configuration.sub_function, configuration)
+            result = test.process_data()
+            sub_function_calls, sub_function_definitions = self._handle_sub_functions(configuration, return_type,
+                                                                                      class_name)
+            pseudocode_lines += sub_function_calls
         else:
-            strategy = self.strategy_factory.get_strategy(function_name)
-            state = False
-            for index, action in enumerate(configuration.actions):
-                if configuration.actions:
-                    if index > 0:
-                        state = True
-                    action_lines = strategy.execute_action(action, params, state)
-                    pseudocode_lines.extend(action_lines)
+            pseudocode_lines += self._execute_actions(configuration.actions, params, function_name)
+
         pseudocode_lines.append("}\n")
-        pseudocode_lines.append("\n".join(pseudocode_lines_str))
+        pseudocode_lines += sub_function_definitions
         return "\n".join(pseudocode_lines)
 
     @staticmethod
-    def _generate_function_signature(function_name: str, return_type: str, class_name: str,
-                                     params: Optional[Dict[str, str]]) -> str:
-        param_str = ", ".join([f"{type} {name}" for name, type in params.items()]) if params else ""
-        return f"{return_type} {class_name}::{function_name}({param_str})"
+    def _find_params(configuration):
+        return find_common_elements_to_params(configuration.params, configuration.values, configuration.address)
 
+    def _handle_sub_functions(self, configuration, return_type, class_name):
+        sub_function_calls, sub_function_definitions = [], []
+        for sub_func_name, action_items in configuration.sub_function.items():
+            sub_params = self._find_params_from_actions(action_items, configuration)
+            call_line, definition = self._generate_sub_function(sub_func_name, return_type, action_items, sub_params,
+                                                                class_name, configuration)
+            sub_function_calls.append(call_line)
+            sub_function_definitions.append(definition)
+        return sub_function_calls, sub_function_definitions
 
-# class CodeGenerator:
-#     def __init__(self, configurations: Dict[str, ConfigurationModel], type_model: TypeModel):
-#         self.configurations = configurations
-#         self.type_model = type_model
-#
-#     def generate_pseudocode(self, function_name: str, return_type: str = "void", class_name: str = "",
-#                             params: Optional[Dict[str, str]] = None) -> str:
-#         configuration = self.configurations.get(function_name)
-#         if not configuration:
-#             return "// No configuration found for function: " + function_name
-#
-#         main_function_code = f"{return_type} {class_name}::{function_name}({self._format_params(params)})\n{{\n"
-#         sub_functions_code = ""
-#         addresses = configuration.address
-#         for key, sub_function in enumerate(configuration.sub_function.items()):
-#             # Generate code for each sub-function
-#             function_name, action_items = sub_function
-#             for action_item in action_items:
-#                 if not list(action_item.params.keys())[0] == action_item.value:
-#                     action_lines = StaticAssignmentStrategy().execute_action(action_item)
-#                     print(action_lines)
-#                 if list(action_item.params.keys())[0] == action_item.value:
-#                     action_lines = ParameterAssignmentStrategy().execute_action(action_item)
-#                     print(action_lines)
-#                 if any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
-#                     action_lines = SimpleJudgmentStrategy()
-#                     print(action_lines)
-#                 if configuration.params and any(re.search(r'[\+\-\*/]', v) for v in configuration.params):
-#                     action_lines = ParameterAssignmentStrategy()
-#                     print(action_lines)
-#
-#         main_function_code += "}\n\n"
-#         return main_function_code + sub_functions_code
-#
-#     def _format_params(self, params: Optional[Dict[str, str]]) -> str:
-#         if params:
-#             return ", ".join([f"{type} {name}" for name, type in params.items()])
-#         return ""
-#
-#     def _extract_sub_function_name(self, encapsulation: str) -> str:
-#         # Extract and format the sub-function name from the encapsulation field
-#         return encapsulation.split(':')[-1].strip()
-#
-#     def _generate_sub_function_code(self, action: ActionItemModel, class_name: str) -> (str, str):
-#         sub_function_name = self._extract_sub_function_name(action.encapsulation)
-#         formatted_name = f"{class_name}::rf_{sub_function_name}"
-#         params = self._format_params(action.params)
-#
-#         function_code = f"//sub_function {formatted_name} from {class_name}\nvoid {formatted_name}({params})\n{{\n"
-#         function_call = f"rf_{sub_function_name}({', '.join(action.params.keys())})"
-#         for step in action.steps:
-#             function_code += f"\treg_write({step.address}, {step.value}); // {step.comment}\n"
-#
-#         function_code += "}\n\n"
-#         return function_code, function_call
+    @staticmethod
+    def _find_params_from_actions(action_items, configuration):
+        values, address = zip(*[(action.value, action.address) for action in action_items])
+        return find_common_elements_to_params(configuration.params, values, address)
+
+    def _generate_sub_function(self, function_name, return_type, action_items, params, class_name, configuration):
+        function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
+        call_line = f"\t{function_signature};"
+        values, address = zip(*[(action.value, action.address) for action in action_items])
+        strategy, _ = self.strategy_factory.get_dynamic_strategy(action_items[0], address, configuration)
+        function_lines = [f"{function_signature}\n{{"]
+        for action_item in action_items:
+            action_lines = strategy.execute_action(action_item, params)
+            function_lines += action_lines
+        function_lines.append("}\n")
+        return call_line, "\n".join(function_lines)
+
+    def _execute_actions(self, actions, params, function_name):
+        lines = []
+        for index, action in enumerate(actions):
+            strategy = self.strategy_factory.get_strategy(function_name)
+            action_lines = strategy.execute_action(action, params, index > 0)
+            lines.extend(action_lines)
+        return lines
+
+    @staticmethod
+    def _generate_function_signature(function_name, return_type, class_name, params):
+        param_str = ", ".join([f"{ptype} {pname}" for pname, ptype in params.items()]) if params else ""
+        if class_name:
+            return f"{return_type} {class_name}::{function_name}({param_str})"
+        return f"{function_name}({','.join(params.keys())})"
 
 
 if __name__ == '__main__':
@@ -698,50 +556,44 @@ if __name__ == '__main__':
     functions_dict = parser.parse_csv_to_pseudocode("Assign_Function.csv")
     processor = DataProcessor(functions_dict)
     processed_configurations = processor.process()
-    classifier = DataClassifier(functions_dict)
+    classifier = DataClassifier(processed_configurations)
     type_model = classifier.process_data()
+    print(type_model)
 
     code_generator = CodeGenerator(processed_configurations, type_model, processor)
-    pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
-    print(pseudocode_static)
-
-    params_for_set_rx_tpana = {"tp_setting": "uint8_t"}  # Example parameters
-    pseudocode_parameter = code_generator.generate_pseudocode('set_rx_tpana', "void", "DRIVER_KUNLUN",
-                                                              params_for_set_rx_tpana)
-
-    print(pseudocode_parameter)
+    # pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
+    # print(pseudocode_static)
     #
-    # 生成简单判断类型的伪代码
-    params_for_tx0_ldo_on = {"enable": "uint8_t"}  # 参数示例
-    pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN",
-                                                                    params_for_tx0_ldo_on)
-    print(pseudocode_simple_judgment)
+    # pseudocode_parameter = code_generator.generate_pseudocode('set_rx_tpana', "void", "DRIVER_KUNLUN")
     #
-    # 调用generate_pseudocode生成代码
-    function_name = 'set_rx0_tia_vcm'
-    return_type = 'void'
-    class_name = 'DRIVER_KUNLUN'
-    params = {'tia_vcm': 'uint8_t', 'mixer_bias': 'uint8_t'}  # 函数参数及其类型
-
-    # 生成伪代码
-    pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name, params)
-    print(pseudocode)
+    # print(pseudocode_parameter)
+    # #
+    # # 生成简单判断类型的伪代码
+    # pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN")
+    # #
+    # # 调用generate_pseudocode生成代码
+    # function_name = 'set_rx0_tia_vcm'
+    # return_type = 'void'
+    # class_name = 'DRIVER_KUNLUN'
+    #
+    # # 生成伪代码
+    # pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
+    # print(pseudocode)
 
     # 调用generate_pseudocode生成代码
     function_name = 'rx0_on'
     return_type = 'void'
     class_name = 'DRIVER_KUNLUN'
-    params = {"enable": "uint8_t"}  # 函数参数及其类型
 
     # 生成伪代码
-    pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name, params)
+    pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
     print(pseudocode)
     # processed_configurations = processor.process()
     # classifier = DataClassifier(functions_dict)
     # instruction = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'instruction')
     # address = processor.fetch_deep_attribute_values('set_radio_init', 'address')
     # values = processor.fetch_deep_attribute_values('set_radio_init', 'values')
-    comments = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'comment')
+    # comments = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'comment')
     # print(classifier.process_data())
     #
     # print(instruction)
