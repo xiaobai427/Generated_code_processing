@@ -27,6 +27,19 @@ class ActionItemModel(BaseModel):
                 f"Params: {self.params}")
 
 
+class TrimActionItemModel(ActionItemModel):
+    flag: Optional[str] = None
+    index_start: Optional[str] = None
+    index_stop: Optional[str] = None
+    index_step: Optional[str] = None
+    spec_low: Optional[str] = None
+    target: Optional[str] = None
+    spec_high: Optional[str] = None
+    unit_scale: Optional[str] = None
+    in_target: Optional[str] = None
+    out_target: Optional[str] = None
+
+
 class ConfigurationModel(BaseModel):
     params: List[str] = Field(default_factory=list)
     actions: List[ActionItemModel] = Field(default_factory=list)

@@ -1,4 +1,8 @@
 import re
+from collections import Counter
+from typing import Union, Type, List, Any
+
+from models.base import ConfigurationModel
 
 
 def adjust_params(data):
@@ -12,13 +16,14 @@ def adjust_params(data):
     for key, instructions in data.items():
         for instruction in instructions:
             # Convert string representation of dict to dict
-            params = eval(instruction['params'])
-            # Check if the 'value' is a key in 'params'
-            if instruction['value'] not in params:
-                instruction['params'] = "{}"
-            else:
-                # Ensure params is properly formatted as a string
-                instruction['params'] = str(params)
+            if "params" in instruction.keys():
+                params = eval(instruction['params'])
+                # Check if the 'value' is a key in 'params'
+                if instruction['value'] not in params:
+                    instruction['params'] = "{}"
+                else:
+                    # Ensure params is properly formatted as a string
+                    instruction['params'] = str(params)
     return data
 
 
@@ -53,3 +58,19 @@ def find_common_elements_to_params(params, values, addresses, element_type='uint
             return {element: element_type for element in params}
 
     return common_elements_with_type
+
+
+def get_most_common_type(items: Union[ConfigurationModel, List[Any]]) -> Type:
+    """
+    确定传入参数的类型。
+    如果是直接传递类型本身，则直接返回该类型。
+    如果是传递类型实例的列表，则确定列表中最常见的元素类型。
+    """
+    # 直接传递类型本身
+    if isinstance(items, ConfigurationModel):
+        return type(items)
+    # 传递类型实例的列表
+    elif isinstance(items, list) and items:
+        types = [type(item) for item in items]
+        most_common_type, _ = Counter(types).most_common(1)[0]
+        return most_common_type

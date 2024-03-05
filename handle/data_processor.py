@@ -1,7 +1,7 @@
 import json
 from typing import Dict, Optional, List, Any
 
-from models.base import ConfigurationModel, ActionItemModel
+from models.base import ConfigurationModel, ActionItemModel, TrimActionItemModel
 
 
 class DataProcessor:
@@ -33,7 +33,10 @@ class DataProcessor:
             except json.JSONDecodeError:
                 print(f"Warning: Could not convert params to dictionary for action: {action}")
                 action['params'] = {}
-        return ActionItemModel(**action)
+        if 'flag' in action:
+            return TrimActionItemModel(**action)
+        else:
+            return ActionItemModel(**action)
 
     def fetch_deep_attribute_values(self, key: str, attribute: str, action_attribute: Optional[str] = None) -> List[
         Any]:
