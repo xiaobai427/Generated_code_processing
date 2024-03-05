@@ -10,7 +10,12 @@ class StaticAssignmentStrategy(ActionStrategy):
                        action: ActionItemModel,
                        params: Optional[Dict[str, str]] = None,
                        state: bool = None) -> List[str]:
-        return [f"\treg_write({action.address}, {action.value}); // {action.comment}"]
+        lines = []
+        if action.instruction == "write":
+            lines.append(f"\treg_write({action.address}, {action.value}); // {action.comment}")
+        elif action.instruction == "delay":
+            lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
+        return lines
 
 
 class SimpleJudgmentStrategy(ActionStrategy):
