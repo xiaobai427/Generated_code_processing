@@ -61,7 +61,7 @@ class LogicOperationStrategy(ActionStrategy):
             lines.append(line)
         elif action.instruction == 'delay':
             # 处理延时
-            lines.append(f"\tSleep({action.address}, {action.value}); // {action.comment}")
+            lines.append(f"\tSleep({action.address} {action.value}); // {action.comment}")
         return lines
 
     @staticmethod
@@ -70,7 +70,7 @@ class LogicOperationStrategy(ActionStrategy):
         for param_name, param_type in params.items():
             if param_name in expression:
                 # 这里简单地替换参数名为其类型表示，需要根据实际情况进行调整
-                expression = expression.replace(param_name, param_type)
+                pass
         return expression
 
 
@@ -87,14 +87,18 @@ class SubFunctionHandler:
         sub_function_calls, sub_function_definitions = [], []
         for sub_func_name, action_items in configuration.sub_function.items():
             sub_params = self.find_params_from_actions(action_items, configuration)
+            sub_params_value = action_items[0].params_value
             call_line, definition = self.generate_sub_function(sub_func_name, return_type, action_items, sub_params,
-                                                               class_name)
+                                                               class_name, sub_params_value)
+            if action_items[0].params_value:
+                str_definition = definition.replace("uint8_t", "string")
+                sub_function_definitions.append(str_definition)
             sub_function_calls.append(call_line)
             sub_function_definitions.append(definition)
         return sub_function_calls, sub_function_definitions
 
-    def generate_sub_function(self, function_name, return_type, action_items, params, class_name):
-        _function_signature = self.generate_function_signature(function_name, return_type, None, params)
+    def generate_sub_function(self, function_name, return_type, action_items, params, class_name, params_value):
+        _function_signature = self.generate_function_signature(function_name, return_type, None, params, params_value)
         function_signature = self.generate_function_signature(function_name, return_type, class_name, params)
         call_line = f"\t{_function_signature};"
         strategy = self.strategy_factory_sub.get_strategy(function_name)
@@ -106,8 +110,8 @@ class SubFunctionHandler:
         return call_line, "\n".join(function_lines)
 
     @staticmethod
-    def generate_function_signature(function_name, return_type, class_name, params):
+    def generate_function_signature(function_name, return_type, class_name, params, params_value=None):
         param_str = ", ".join([f"{ptype} {pname}" for pname, ptype in params.items()]) if params else ""
         if class_name:
             return f"{return_type} {class_name}::{function_name}({param_str})"
-        return f"{function_name}({','.join(params.keys())})"
+        return f"{function_name}({params_value if params_value else ','.join(params.keys())})"

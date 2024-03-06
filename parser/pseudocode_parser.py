@@ -80,7 +80,6 @@ class PseudocodeParser:
                         self.functions[function_name]['values'].append(action['value'])
                         self.functions[function_name]['address'].append(address)
                         self.parse_encapsulation(action, function_name)
-
             # Post-process to adjust the structure
             for func in self.functions.values():
                 if func['sub_function']:

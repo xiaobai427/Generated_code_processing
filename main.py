@@ -1,93 +1,80 @@
-from classification.data_classifier import DataClassifier
-from code_generator.code_generator_basics import CodeGeneratorBasics
-from handle.data_processor import DataProcessor
-from parser.pseudocode_parser import PseudocodeParser
-from strategy.factory import ActionStrategyFactory
+from code_generator.assign import CodeGeneratorAssign
+from code_generator.trim import CodeGeneratorTrim
+
+
+class CodeGeneratorController:
+    def __init__(self, cpp_path):
+        self.cpp_path = cpp_path
+        # This list will hold tuples of (GeneratorClass, csv_path) to process
+        self.generators_info = []
+        self.generated_code = ""  # To accumulate all generated codes
+
+    def add_generator(self, generator_class, csv_path):
+        """Add a generator to the processing list."""
+        self.generators_info.append((generator_class, csv_path))
+
+    def run_all(self):
+        """Run each added generator and collect their generated code."""
+        for generator_class, csv_path in self.generators_info:
+            generator_instance = generator_class(csv_path)
+            generator_instance.run()
+            # Assuming each generator instance has a `generated_code` attribute
+            self.generated_code += generator_instance.generated_code + "\n\n"
+
+        self._write_to_cpp()
+
+    def _write_to_cpp(self):
+        """Write the collected generated code to the specified .cpp file."""
+        with open(self.cpp_path, 'w') as cpp_file:
+            cpp_file.write(self.generated_code)
+
 
 if __name__ == '__main__':
-    # 使用示例
-    parser = PseudocodeParser()
-    functions_dict = parser.parse_csv_to_pseudocode("Assign_Function.csv")
-    processor = DataProcessor(functions_dict)
-    processed_configurations = processor.process()
+    cpp_path = r"C:\Users\shibo.huang\Desktop\Generated_code_processing\output.cpp"
 
-    action_type_model = None
-    sub_type_model = None
-    for function_name, function_configurations in processed_configurations.items():
-        if function_configurations.sub_function:
-            sub_classifier = DataClassifier(function_configurations.sub_function, function_configurations)
-            sub_type_model = sub_classifier.process_data()
-    classifier = DataClassifier(processed_configurations)
-    action_type_model = classifier.process_data()
-    strategy_factory_sub = ActionStrategyFactory(sub_type_model)
-    strategy_factory_action = ActionStrategyFactory(action_type_model)
-    code_generator = CodeGeneratorBasics(
-        processed_configurations,
-        processor,
-        strategy_factory_action=strategy_factory_action,
-        strategy_factory_sub=strategy_factory_sub)
+    # Create the controller instance with the .cpp file path
+    code_gen_controller = CodeGeneratorController(cpp_path)
 
-    for function_name, function_configurations in processed_configurations.items():
-        pseudocode_static = code_generator.generate_pseudocode(function_name, "void", "DRIVER_KUNLUN")
-        print(pseudocode_static)
+    code_gen_controller.add_generator(CodeGeneratorAssign,
+                                      r"C:\Users\shibo.huang\Desktop\Generated_code_processing\Assign_Function.csv")
+    # Add the code generator instances to be executed
+    code_gen_controller.add_generator(CodeGeneratorTrim,
+                                      r"C:\Users\shibo.huang\Desktop\Generated_code_processing\Trim_Function.csv")
 
-    # pseudocode_static = code_generator.generate_pseudocode('set_radio_cal_cbc', "void", "DRIVER_KUNLUN")
-    # print(pseudocode_static)
-    # print(processed_configurations.keys())
-    # pseudocode_static = code_generator.generate_pseudocode('set_radio_init', "void", "DRIVER_KUNLUN")
-    # print(pseudocode_static)
+#     # Run all added generators and write their output to the .cpp file
+    code_gen_controller.run_all()
+# def generate_set_GL_OTP_ALL_function(class_name, function_name, otp_list):
+#     sorted_otp_list = sorted(otp_list)
+#     function_body = f"void {class_name}::{function_name}()\n\n{{\n"
+#     for otp in sorted_otp_list:
+#         function_call = f'\trdi.runTimeVal("{otp}_ATE",{otp}_ATE);'
+#         function_body += function_call + "\n"
+#     function_body += "}\n"
+#     return function_body
+#
+# # 使用示例
+# class_name = "DRIVER_KUNLUN"
+# otp_list = [
+#     'GL_OTP_LODIST_MLDO08_VRCAL', 'GL_OTP_ADC_LDO08_VOSEL',
+#     'GL_OTP_RX_TIA_MX_VCM_L0', 'GL_OTP_FPLL_PFDLDO15_VOSEL',
+#     'GL_OTP_RXBG_CTAT_8U_CAL', 'GL_OTP_TXLO_13G_LDO08_VRCAL'
+# ]
+# print(generate_set_GL_OTP_ALL_function(class_name, 'set_GL_OTP_ALL', otp_list))
 
 
-    #
-    # pseudocode_parameter = code_generator.generate_pseudocode('set_rx_tpana', "void", "DRIVER_KUNLUN")
-    #
-    # print(pseudocode_parameter)
-    # #
-    # # 生成简单判断类型的伪代码
-    # pseudocode_simple_judgment = code_generator.generate_pseudocode('tx0_ldo_on', "void", "DRIVER_KUNLUN")
-    # print(pseudocode_simple_judgment)
-    # #
-    # # 调用generate_pseudocode生成代码
-    # function_name = 'set_rx0_tia_vcm'
-    # return_type = 'void'
-    # class_name = 'DRIVER_KUNLUN'
-    #
-    # # 生成伪代码
-    # pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
-    # print(pseudocode)
-    #
-    # 调用generate_pseudocode生成代码
-    # function_name = 'rx0_on'
-    # return_type = 'void'
-    # class_name = 'DRIVER_KUNLUN'
-    # #
-    # # 生成伪代码
-    # pseudocode = code_generator.generate_pseudocode(function_name, return_type, class_name)
-    # print(pseudocode)
-
-    # processed_configurations = processor.process()
-    # classifier = DataClassifier(functions_dict)
-    # instruction = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'instruction')
-    # address = processor.fetch_deep_attribute_values('set_radio_init', 'address')
-    # values = processor.fetch_deep_attribute_values('set_radio_init', 'values')
-    # comments = processor.fetch_deep_attribute_values('set_radio_init', 'actions', 'comment')
-    # print(classifier.process_data())
-    #
-    # print(instruction)
-    # print(address)
-    # print(values)
-    # print(comments)
-
-    # for function_name, function in processed_configurations.items():
-    #     for action in function.actions:
-    #         if action.params:
-    #             for param in function.params:
-    #                 print(action.params.get(param, None))
-
-    # classifier = DataClassifier(functions_dict)
-#     print(functions_dict)
-#     # model_result = classifier.process_data()
-#     # print(model_result)
-#     for function_name, function in functions_dict.items():
-#         print(function_name)
-#         print(function)
+# def generate_function_pointers_array(class_name, function_names):
+#     array_declaration = f"void ({class_name}::*functionPointers[400])(uint8_t) = {{\n"
+#     array_declaration += f"\t&{class_name}::set_driver_index, // this line is only to take index-0;\n"
+#     for name in function_names:
+#         array_declaration += f"\t&{class_name}::{name},\n"
+#     array_declaration = array_declaration.rstrip(',\n') + "\n\n};\n"
+#     return array_declaration
+#
+# # 使用示例
+# class_name = "DRIVER_KUNLUN"
+# function_names = [
+#     'set_radio_cal', 'set_radio_cal_pll', 'set_radio_cal_lo',
+#     'set_radio_cal_rx', 'set_radio_cal_adc', 'set_radio_cal_cbc',
+#     'set_radio_cal_tx'
+# ]
+# print(generate_function_pointers_array(class_name, function_names))

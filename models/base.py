@@ -1,4 +1,4 @@
-from typing import List, Optional, Dict
+from typing import List, Optional, Dict, Union
 
 from pydantic import BaseModel, Field
 
@@ -20,6 +20,8 @@ class ActionItemModel(BaseModel):
     encapsulation: Optional[str] = None
     comment: Optional[str] = None
     params: Optional[Dict[str, str]] = None
+    flag: Optional[str] = None
+    params_value: Optional[str] = None
 
     def __str__(self):
         return (f"Step: {self.step}, Instruction: {self.instruction}, Address: {self.address}, "
@@ -28,7 +30,6 @@ class ActionItemModel(BaseModel):
 
 
 class TrimActionItemModel(ActionItemModel):
-    flag: Optional[str] = None
     index_start: Optional[str] = None
     index_stop: Optional[str] = None
     index_step: Optional[str] = None
@@ -42,7 +43,7 @@ class TrimActionItemModel(ActionItemModel):
 
 class ConfigurationModel(BaseModel):
     params: List[str] = Field(default_factory=list)
-    actions: List[ActionItemModel] = Field(default_factory=list)
+    actions: List[Optional[Union[ActionItemModel, TrimActionItemModel]]] = Field(default_factory=list)
     sub_function: Dict[str, List[ActionItemModel]] = Field(default_factory=dict)
     values: List[str] = Field(default_factory=list)
     address: List[str] = Field(default_factory=list)

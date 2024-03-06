@@ -19,6 +19,7 @@ def adjust_params(data):
             if "params" in instruction.keys():
                 params = eval(instruction['params'])
                 # Check if the 'value' is a key in 'params'
+                instruction['params'] = str(params)
                 if instruction['value'] not in params:
                     instruction['params'] = "{}"
                 else:
@@ -52,7 +53,6 @@ def find_common_elements_to_params(params, values, addresses, element_type='uint
 
     # 为每个共有元素指定类型
     common_elements_with_type = {element: element_type for element in common_elements}
-
     if not common_elements_with_type:
         if not common_elements and any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
             return {element: element_type for element in params}

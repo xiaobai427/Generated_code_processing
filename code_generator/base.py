@@ -1,22 +1,68 @@
-from classification.data_classifier import DataClassifier
+from abc import ABC, abstractmethod
 from strategy.Interface import SubFunctionHandler
-from strategy.factory import ActionStrategyFactory
 from util import find_common_elements_to_params
 
 
-class CodeGeneratorBasics:
-    def __init__(self, configurations, processor, strategy_factory_action, strategy_factory_sub):
+class CodeGeneratorBase(ABC):
+    def __init__(self, csv_path, function_type="void", driver="DRIVER_KUNLUN"):
+        self.csv_path = csv_path
+        self.function_type = function_type
+        self.driver = driver
+        self.strategy_factory_sub = None
+        self.strategy_factory_action = None
+        self.generated_code = ''
+
+    def run(self):
+        functions_dict = self.parse_csv()
+        processed_configurations = self.process_data(functions_dict)
+        action_type_model, sub_type_model = self.classify_data(processed_configurations)
+        self.setup_strategy_factory(action_type_model, sub_type_model)
+        self.before_generate_code(processed_configurations)  # 钩子方法
+        self.generate_code(processed_configurations)
+        self.after_generate_code(processed_configurations)  # 钩子方法
+
+    @abstractmethod
+    def parse_csv(self):
+        pass
+
+    @abstractmethod
+    def process_data(self, functions_dict):
+        pass
+
+    @abstractmethod
+    def classify_data(self, processed_configurations):
+        pass
+
+    @abstractmethod
+    def setup_strategy_factory(self, action_type_model, sub_type_model):
+        pass
+
+    @abstractmethod
+    def generate_code(self, processed_configurations):
+        pass
+
+    # 钩子方法，子类可以根据需要覆盖它们
+    def before_generate_code(self, processed_configurations):
+        # 默认实现为空
+        pass
+
+    def after_generate_code(self, processed_configurations):
+        # 默认实现为空
+        pass
+
+
+class CodeGenerator:
+    def __init__(self, configurations, strategy_factory_action, strategy_factory_sub):
         self.configurations = configurations
         self.strategy_factory_action = strategy_factory_action
         self.strategy_factory_sub = strategy_factory_sub
-        self.processor = processor
 
     def generate_pseudocode(self, function_name, return_type="void", class_name=""):
         configuration = self.configurations.get(function_name, None)
         if configuration is None:
             return f"// No configuration found for function: {function_name}"
-
         params = self._find_params(configuration)
+
         function_signature = self._generate_function_signature(function_name, return_type, class_name, params)
         pseudocode_lines = [f"{function_signature}\n{{"]
         sub_function_definitions = '\n'
@@ -30,6 +76,13 @@ class CodeGeneratorBasics:
             pseudocode_lines += self._execute_actions(configuration.actions, params, function_name)
 
         pseudocode_lines.append("}\n")
+        for actions in configuration.actions:
+            lines = []
+            if actions.flag:
+                for pseudocode_line in pseudocode_lines:
+                    pseudocode_line_str = pseudocode_line.replace("uint8_t", "string")
+                    lines.append(pseudocode_line_str)
+                pseudocode_lines += lines
         pseudocode_lines += sub_function_definitions
         return "\n".join(pseudocode_lines)
 
@@ -51,37 +104,3 @@ class CodeGeneratorBasics:
         if class_name:
             return f"{return_type} {class_name}::{function_name}({param_str})"
         return f"{function_name}({','.join(params.keys())})"
-
-
-if __name__ == '__main__':
-    from classification.data_classifier import DataClassifier
-    from handle.data_processor import DataProcessor
-    from parser.pseudocode_parser import PseudocodeParser
-    from strategy.factory import ActionStrategyFactory
-
-    if __name__ == '__main__':
-        # 使用示例
-        parser = PseudocodeParser()
-        functions_dict = parser.parse_csv_to_pseudocode(r"C:\Users\shibo.huang\Desktop\Generated_code_processing\Assign_Function.csv")
-        processor = DataProcessor(functions_dict)
-        processed_configurations = processor.process()
-
-        action_type_model = None
-        sub_type_model = None
-        for function_name, function_configurations in processed_configurations.items():
-            if function_configurations.sub_function:
-                sub_classifier = DataClassifier(function_configurations.sub_function, function_configurations)
-                sub_type_model = sub_classifier.process_data()
-        classifier = DataClassifier(processed_configurations)
-        action_type_model = classifier.process_data()
-        strategy_factory_sub = ActionStrategyFactory(sub_type_model)
-        strategy_factory_action = ActionStrategyFactory(action_type_model)
-        code_generator = CodeGeneratorBasics(
-            processed_configurations,
-            processor,
-            strategy_factory_action=strategy_factory_action,
-            strategy_factory_sub=strategy_factory_sub)
-
-        for function_name, function_configurations in processed_configurations.items():
-            pseudocode_static = code_generator.generate_pseudocode(function_name, "void", "DRIVER_KUNLUN")
-            print(pseudocode_static)
