@@ -12,7 +12,10 @@ class CodeGeneratorAssign(CodeGeneratorBase):
 
     def process_data(self, functions_dict):
         processor = DataProcessor(functions_dict)
-        return processor.process()
+        processed_configurations = processor.process()
+        # print(processor.fetch_deep_attribute_values("set_radio_init", "actions", "instruction"))
+        # print(processor.extract_parameters_from_actions_or_sub_functions("set_radio_init", "actions"))
+        return processed_configurations, processor
 
     def classify_data(self, processed_configurations):
         action_type_model = None

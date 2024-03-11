@@ -13,32 +13,28 @@ class TypeModel(BaseModel):
 
 # Action item model for actions and sub-functions
 class ActionItemModel(BaseModel):
-    step: str
-    instruction: str
-    address: str
-    value: str
-    encapsulation: Optional[str] = None
-    comment: Optional[str] = None
-    params: Optional[Dict[str, str]] = None
-    flag: Optional[str] = None
-    params_value: Optional[str] = None
-
-    def __str__(self):
-        return (f"Step: {self.step}, Instruction: {self.instruction}, Address: {self.address}, "
-                f"Value: {self.value}, Encapsulation: {self.encapsulation}, Comment: {self.comment}, "
-                f"Params: {self.params}")
+    step: Union[str, List[str]]
+    instruction: Union[str, List[str]]
+    address: Union[str, List[str]]
+    value: Union[str, List[str]]
+    encapsulation: Optional[Union[str, List[str]]] = None
+    comment: Optional[Union[str, List[str]]] = None
+    params: Optional[Union[Dict[str, Union[str, List[str]]], List[Union[str, None]]]] = None
+    flag: Optional[Union[str, List[Union[str, None]]]] = None
+    params_value: Optional[Union[str, List[Union[str, None]]]] = None
 
 
 class TrimActionItemModel(ActionItemModel):
-    index_start: Optional[str] = None
-    index_stop: Optional[str] = None
-    index_step: Optional[str] = None
-    spec_low: Optional[str] = None
-    target: Optional[str] = None
-    spec_high: Optional[str] = None
-    unit_scale: Optional[str] = None
-    in_target: Optional[str] = None
-    out_target: Optional[str] = None
+    trim_idx: Optional[Union[str, List[Union[str, None]]]] = None
+    index_start: Optional[Union[str, List[Union[str, None]]]] = None
+    index_stop: Optional[Union[str, List[Union[str, None]]]] = None
+    index_step: Optional[Union[str, List[Union[str, None]]]] = None
+    spec_low: Optional[Union[str, List[Union[str, None]]]] = None
+    target: Optional[Union[str, List[Union[str, None]]]] = None
+    spec_high: Optional[Union[str, List[Union[str, None]]]] = None
+    unit_scale: Optional[Union[str, List[Union[str, None]]]] = None
+    in_target: Optional[Union[str, List[Union[str, None]]]] = None
+    out_target: Optional[Union[str, List[Union[str, None]]]] = None
 
 
 class ConfigurationModel(BaseModel):
@@ -59,3 +55,32 @@ class ConfigurationModel(BaseModel):
         return (f"Params: [{params_str}], Actions: [{actions_str}], "
                 f"SubFunctions: [{sub_functions_str}], Values: [{values_str}], "
                 f"Address: [{address_str}]")
+
+    # def __repr__(self):
+    #     return self.__str__()
+
+    def __getitem__(self, item):
+        return getattr(self, item)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+    def __contains__(self, item):
+        return hasattr(self, item)
+
+    # def __len__(self):
+    #     return len(self.__dict__)
+    #
+    # def __iter__(self):
+    #     return iter(self.__dict__)
+    #
+    # def __dir__(self):
+    #     return list(self.__dict__)
+    #
+    # def __bool__(self):
+    #     return bool(self.__dict__)
+    #
+    # def __eq__(self, other):
+    #     if not isinstance(other, ConfigurationModel):
+    #         return False
+    #     return self.__dict__ == other.__dict__

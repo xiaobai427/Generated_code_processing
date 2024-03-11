@@ -1,6 +1,8 @@
 import json
 from typing import Dict, Optional, List, Any
 
+import pydantic
+
 from models.base import ConfigurationModel, ActionItemModel, TrimActionItemModel
 
 
@@ -63,3 +65,22 @@ class DataProcessor:
                 results.append(getattr(item, action_attribute, None))
 
         return results
+
+    def extract_parameters_from_actions_or_sub_functions(self, key: str, attribute: str):
+        model_class = TrimActionItemModel
+        results = {}
+
+        # 获取模型的所有字段
+        model_fields = model_class.model_fields.keys()
+
+        for field in model_fields:
+            field_values = self.fetch_deep_attribute_values(key, attribute, field)
+
+            results[field] = field_values
+        # 使用处理后的值创建TrimActionItemModel实例
+        try:
+            model_instance = model_class(**results)
+            return model_instance
+        except pydantic.ValidationError as e:
+            print("ValidationError:", e)
+            return None

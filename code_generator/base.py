@@ -11,10 +11,15 @@ class CodeGeneratorBase(ABC):
         self.strategy_factory_sub = None
         self.strategy_factory_action = None
         self.generated_code = ''
+        self.values = []
+        self.function_names = []
+        self.flags = []
+        self.trim_value_list = []
+        self.variable = {}
 
     def run(self):
         functions_dict = self.parse_csv()
-        processed_configurations = self.process_data(functions_dict)
+        processed_configurations, processor = self.process_data(functions_dict)
         action_type_model, sub_type_model = self.classify_data(processed_configurations)
         self.setup_strategy_factory(action_type_model, sub_type_model)
         self.before_generate_code(processed_configurations)  # 钩子方法

@@ -45,14 +45,14 @@ def find_common_elements_to_params(params, values, addresses, element_type='uint
     combined_expressions = ' '.join(values)
 
     # 使用正则表达式提取变量名
-    # 假设变量名由字母、下划线或数字组成，并且不以数字开头
     variables_in_expressions = set(re.findall(r'\b[a-zA-Z_][a-zA-Z_0-9]*\b', combined_expressions))
 
-    # 找出两个集合的共有元素
-    common_elements = set(params).intersection(variables_in_expressions)
+    # 根据params的顺序找出共有元素
+    common_elements = [param for param in params if param in variables_in_expressions]
 
     # 为每个共有元素指定类型
     common_elements_with_type = {element: element_type for element in common_elements}
+
     if not common_elements_with_type:
         if not common_elements and any(addresses[i] == addresses[i + 1] for i in range(len(addresses) - 1)):
             return {element: element_type for element in params}
